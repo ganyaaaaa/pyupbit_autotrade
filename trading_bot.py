@@ -31,10 +31,6 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
         self.secret_key = os.getenv("PRIVATE_KEY")
         self.upbit = pyupbit.Upbit(self.access_key, self.secret_key)
 
-        # 기본 매매 설정
-        self.ticker = "KRW-BTC"
-        self.budget = 10000
-
         # Matplotlib 그래프 추가
         self.figure, self.ax = plt.subplots()
         self.canvas = FigureCanvas(self.figure)
@@ -65,7 +61,8 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
         self.start_btn.clicked.connect(self.start_trading)
         self.stop_btn.clicked.connect(self.stop_trading)
 
-        self.worker = None
+        # ✅ 여러 종목을 관리할 딕셔너리
+        self.workers = {}
 
     def log(self, message):
         """로그 출력"""
@@ -91,36 +88,45 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
             self.stop_loss_label.setText(f"목표 매도가격 (1.5% 손절): {stop_loss_price:,.0f} 원")
 
     def start_trading(self):
-        """자동매매 시작 (백테스트 적용)"""
-        self.ticker = self.input_ticker.text()
-        self.budget = float(self.input_budget.text())
+        """자동매매 시작 (여러 종목 지원)"""
+        ticker = self.input_ticker.text()
+        budget = float(self.input_budget.text())
 
         # ✅ 🔹 백테스트 실행
-        self.log("📊 변동성 돌파 전략 백테스트 실행 중...")
-        backtest_result = backtest(self.ticker, k=0.5)
+        self.log(f"📊 {ticker} 변동성 돌파 전략 백테스트 실행 중...")
+        backtest_result = backtest(ticker, k=0.5)
 
         # ✅ 백테스트 마지막 누적 수익률 확인
         latest_cumulative = backtest_result["cumulative"].iloc[-1]
-        self.log(f"📈 최근 백테스트 누적 수익률: {latest_cumulative:.4f}")
+        self.log(f"📈 {ticker} 최근 백테스트 누적 수익률: {latest_cumulative:.4f}")
 
         # ✅ 수익률이 일정 이상이면 매매 진행 (예: 1.02 이상이면 매매 진행)
         if latest_cumulative >= 1.02:
-            self.log("✅ 백테스트 결과가 양호하여 자동매매를 시작합니다!")
-            self.worker = TradingWorker(self.ticker, self.budget, self.upbit)
-            self.worker.log_signal.connect(self.log)
-            self.worker.chart_signal.connect(self.update_chart)  # ✅ 차트 & 가격 업데이트 연결
-            self.worker.start()
+            self.log(f"✅ {ticker} 백테스트 결과가 양호하여 자동매매를 시작합니다!")
+
+            # ✅ 새로운 TradingWorker 생성 후 딕셔너리에 저장
+            worker = TradingWorker(ticker, budget, self.upbit)
+            worker.log_signal.connect(self.log)
+            worker.chart_signal.connect(self.update_chart)
+
+            self.workers[ticker] = worker  # 여러 종목을 관리할 수 있도록 딕셔너리에 저장
+            worker.start()
         else:
-            self.log("❌ 백테스트 결과가 좋지 않아 자동매매를 취소합니다.")
-            QMessageBox.warning(self, "자동매매 취소", "백테스트 결과가 양호하지 않습니다. 매매를 취소합니다.")
+            self.log(f"❌ {ticker} 백테스트 결과가 좋지 않아 자동매매를 취소합니다.")
+            QMessageBox.warning(self, "자동매매 취소", f"{ticker} 백테스트 결과가 양호하지 않습니다. 매매를 취소합니다.")
 
     def stop_trading(self):
-        """자동매매 정지"""
-        if self.worker:
-            self.worker.stop()
-            self.worker.quit()
-            self.worker.wait()
-        self.log("🛑 자동매매 중지됨.")
+        """자동매매 정지 (여러 종목 지원)"""
+        ticker = self.input_ticker.text()  # 중지할 종목 선택
+
+        if ticker in self.workers:
+            self.workers[ticker].stop()
+            self.workers[ticker].quit()
+            self.workers[ticker].wait()
+            del self.workers[ticker]  # 종료된 종목 제거
+            self.log(f"🛑 {ticker} 자동매매 중지됨.")
+        else:
+            self.log(f"⚠️ {ticker} 자동매매가 실행 중이 아닙니다.")
 
 
 if __name__ == "__main__":
