@@ -11,90 +11,14 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 from source.main import Ui_MainWindow  # UI 코드 불러오기
 import os
-from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLabel, QMessageBox
 from PyQt5 import QtCore
+from source.backtest import backtest
+from source.trading_worker import TradingWorker  # ✅ TradingWorker import
 
 # 🔹 Matplotlib 한글 폰트 설정 (Mac 환경에서는 'AppleGothic', 윈도우에서는 'Malgun Gothic')
-plt.rcParams['font.family'] = 'Malgun Gothic'  # Mac용 폰트 설정
+plt.rcParams['font.family'] = 'AppleGothic'  # Mac용 폰트 설정
 
-class TradingWorker(QThread):
-    """자동매매 실행 (즉시 매수 후 매도 감시)"""
-    log_signal = pyqtSignal(str)
-    chart_signal = pyqtSignal(pd.DataFrame, float, float, float, float)  # ✅ 매수/매도가 추가
-
-    def __init__(self, ticker, budget, upbit):
-        super().__init__()
-        self.ticker = ticker
-        self.budget = budget
-        self.upbit = upbit
-        self.running = True  # ✅ 실행 상태 변수 추가
-
-    def run(self):
-        """자동매매 즉시 실행"""
-        try:
-            balance = self.upbit.get_balance("KRW")  # 현재 원화 잔고 조회
-            self.log_signal.emit(f"💰 현재 원화 잔고: {balance}원")
-
-            # ✅ 현재 가격 가져오기
-            current_price = pyupbit.get_orderbook(self.ticker)["orderbook_units"][0]["ask_price"]
-
-            # ✅ 즉시 매수 실행
-            order = self.upbit.buy_market_order(self.ticker, self.budget)
-            self.log_signal.emit(f"🛠 매수 응답: {order}")
-
-            # ✅ 매수 후 잔고 확인
-            coin_balance = self.upbit.get_balance(self.ticker)
-            krw_balance = self.upbit.get_balance("KRW")
-            self.log_signal.emit(f"🪙 현재 {self.ticker} 보유량: {coin_balance}, 남은 원화 잔고: {krw_balance}원")
-
-            bought_price = current_price
-            target_sell_price = bought_price * 1.001
-            stop_loss_price = bought_price * 0.999
-
-            while self.running:
-                current_price = pyupbit.get_orderbook(self.ticker)["orderbook_units"][0]["ask_price"]
-
-                # ✅ 실시간 차트 + 현재 가격 업데이트
-                df = pyupbit.get_ohlcv(self.ticker, interval="minute1")
-                self.chart_signal.emit(df, current_price, bought_price, target_sell_price, stop_loss_price)
-
-                if current_price >= target_sell_price:
-                    order = self.upbit.sell_market_order(self.ticker, coin_balance)
-                    self.log_signal.emit(f"🛠 매도 응답: {order}")
-                    self.log_signal.emit(f"✅ 3% 수익 매도 완료! 가격: {current_price}원")
-                    break
-
-                if current_price <= stop_loss_price:
-                    order = self.upbit.sell_market_order(self.ticker, coin_balance)
-                    self.log_signal.emit(f"🛠 매도 응답: {order}")
-                    self.log_signal.emit(f"❌ 1.5% 손절 매도 완료! 가격: {current_price}원")
-                    break
-
-                time.sleep(1)
-
-        except Exception as e:
-            self.log_signal.emit(f"⚠️ 에러 발생: {e}")
-
-
-    def stop(self):
-        """자동매매 중지"""
-        self.running = False
-
-    def get_target_price(self, ticker, k=0.5):
-        """변동성 돌파 전략: 목표 매수가 계산"""
-        df = pyupbit.get_ohlcv(ticker, interval="day")
-        yesterday = df.iloc[-2]
-        today_open = df.iloc[-1]['open']
-        return today_open + (yesterday['high'] - yesterday['low']) * k
-
-    def get_ema(self, ticker, period=20):
-        """EMA(지수 이동 평균) 계산"""
-        df = pyupbit.get_ohlcv(ticker, interval="day")
-        return df['close'].ewm(span=period).mean().iloc[-1]
-
-    def stop(self):
-        """자동매매 중지"""
-        self.running = False
 
 class CryptoTradingBot(QMainWindow, Ui_MainWindow):
     def __init__(self):
@@ -167,15 +91,28 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
             self.stop_loss_label.setText(f"목표 매도가격 (1.5% 손절): {stop_loss_price:,.0f} 원")
 
     def start_trading(self):
-        """자동매매 시작"""
+        """자동매매 시작 (백테스트 적용)"""
         self.ticker = self.input_ticker.text()
         self.budget = float(self.input_budget.text())
 
-        self.worker = TradingWorker(self.ticker, self.budget, self.upbit)
-        self.worker.log_signal.connect(self.log)
-        self.worker.chart_signal.connect(self.update_chart)  # ✅ 차트 & 가격 업데이트 연결
-        self.worker.start()
-        self.log("🚀 자동매매 시작!")
+        # ✅ 🔹 백테스트 실행
+        self.log("📊 변동성 돌파 전략 백테스트 실행 중...")
+        backtest_result = backtest(self.ticker, k=0.5)
+
+        # ✅ 백테스트 마지막 누적 수익률 확인
+        latest_cumulative = backtest_result["cumulative"].iloc[-1]
+        self.log(f"📈 최근 백테스트 누적 수익률: {latest_cumulative:.4f}")
+
+        # ✅ 수익률이 일정 이상이면 매매 진행 (예: 1.02 이상이면 매매 진행)
+        if latest_cumulative >= 1.02:
+            self.log("✅ 백테스트 결과가 양호하여 자동매매를 시작합니다!")
+            self.worker = TradingWorker(self.ticker, self.budget, self.upbit)
+            self.worker.log_signal.connect(self.log)
+            self.worker.chart_signal.connect(self.update_chart)  # ✅ 차트 & 가격 업데이트 연결
+            self.worker.start()
+        else:
+            self.log("❌ 백테스트 결과가 좋지 않아 자동매매를 취소합니다.")
+            QMessageBox.warning(self, "자동매매 취소", "백테스트 결과가 양호하지 않습니다. 매매를 취소합니다.")
 
     def stop_trading(self):
         """자동매매 정지"""
@@ -184,8 +121,6 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
             self.worker.quit()
             self.worker.wait()
         self.log("🛑 자동매매 중지됨.")
-
-
 
 
 if __name__ == "__main__":
