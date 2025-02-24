@@ -48,8 +48,8 @@ class TradingWorker(QThread):
             self.log_signal.emit(f"🪙 현재 {self.ticker} 보유량: {coin_balance}, 남은 원화 잔고: {krw_balance}원")
 
             bought_price = current_price
-            target_sell_price = bought_price * 1.03
-            stop_loss_price = bought_price * 0.985
+            target_sell_price = bought_price * 1.001
+            stop_loss_price = bought_price * 0.999
 
             while self.running:
                 current_price = pyupbit.get_orderbook(self.ticker)["orderbook_units"][0]["ask_price"]
@@ -60,11 +60,13 @@ class TradingWorker(QThread):
 
                 if current_price >= target_sell_price:
                     order = self.upbit.sell_market_order(self.ticker, coin_balance)
+                    self.log_signal.emit(f"🛠 매도 응답: {order}")
                     self.log_signal.emit(f"✅ 3% 수익 매도 완료! 가격: {current_price}원")
                     break
 
                 if current_price <= stop_loss_price:
                     order = self.upbit.sell_market_order(self.ticker, coin_balance)
+                    self.log_signal.emit(f"🛠 매도 응답: {order}")
                     self.log_signal.emit(f"❌ 1.5% 손절 매도 완료! 가격: {current_price}원")
                     break
 
