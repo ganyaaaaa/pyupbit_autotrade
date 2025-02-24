@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>100</x>
+    <y>100</y>
+    <width>500</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>업비트 자동매매 프로그램</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QGridLayout" name="gridLayout">
+    <!-- 종목 입력 -->
+    <item row="0" column="0">
+     <widget class="QLabel" name="label_ticker">
+      <property name="text">
+       <string>매매할 종목 (예: KRW-BTC):</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLineEdit" name="input_ticker"/>
+    </item>
+
+    <!-- 투자 금액 입력 -->
+    <item row="1" column="0">
+     <widget class="QLabel" name="label_budget">
+      <property name="text">
+       <string>투자 금액 (KRW):</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QLineEdit" name="input_budget"/>
+    </item>
+
+    <!-- 자동매매 시작 및 정지 버튼 -->
+    <item row="2" column="0">
+     <widget class="QPushButton" name="start_btn">
+      <property name="text">
+       <string>자동매매 시작</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="1">
+     <widget class="QPushButton" name="stop_btn">
+      <property name="text">
+       <string>자동매매 정지</string>
+      </property>
+     </widget>
+    </item>
+
+    <!-- 로그 창 -->
+    <item row="3" column="0" colspan="2">
+     <widget class="QTextEdit" name="log_text">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
