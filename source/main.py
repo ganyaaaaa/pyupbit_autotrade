@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(500, 400)
+        MainWindow.resize(1000, 700)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.gridLayout = QtWidgets.QGridLayout(self.centralwidget)
@@ -40,6 +40,7 @@ class Ui_MainWindow(object):
         self.log_text = QtWidgets.QTextEdit(self.centralwidget)
         self.log_text.setReadOnly(True)
         self.log_text.setObjectName("log_text")
+        self.log_text.setMinimumHeight(200)
         self.gridLayout.addWidget(self.log_text, 3, 0, 1, 2)
         MainWindow.setCentralWidget(self.centralwidget)
         self.statusbar = QtWidgets.QStatusBar(MainWindow)
