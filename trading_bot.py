@@ -4,19 +4,17 @@ import pyupbit
 import sqlite3
 import pandas as pd
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QMessageBox, QLabel
+from PyQt5.QtCore import QTimer, Qt
 from dotenv import load_dotenv
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 from source.main import Ui_MainWindow  # UI 코드 불러오기
 import os
-from PyQt5.QtWidgets import QLabel, QMessageBox
-from PyQt5 import QtCore
 from source.backtest import backtest
 from source.trading_worker import TradingWorker  # ✅ TradingWorker import
 
-# 🔹 Matplotlib 한글 폰트 설정 (Mac 환경에서는 'AppleGothic', 윈도우에서는 'Malgun Gothic')
+# 🔹 Matplotlib 한글 폰트 설정
 plt.rcParams['font.family'] = 'AppleGothic'  # Mac용 폰트 설정
 
 
@@ -37,7 +35,7 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
 
         # ✅ 현재 가격 표시할 QLabel 추가
         self.price_label = QLabel("현재 가격: - 원", self)
-        self.price_label.setAlignment(QtCore.Qt.AlignRight)
+        self.price_label.setAlignment(Qt.AlignRight)
 
         # ✅ 매수 가격 및 목표 매도가격 QLabel 추가
         self.buy_price_label = QLabel("매수가격: - 원", self)
@@ -64,6 +62,13 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
         # ✅ 여러 종목을 관리할 딕셔너리
         self.workers = {}
 
+        # ✅ UI 그래프 자동 순환을 위한 타이머 설정 (3초마다 변경)
+        self.chart_tickers = []
+        self.current_chart_index = 0
+        self.chart_timer = QTimer(self)
+        self.chart_timer.timeout.connect(self.switch_chart)
+        self.chart_timer.start(3000)  # 3초마다 갱신
+
     def log(self, message):
         """로그 출력"""
         self.log_text.append(message)
@@ -82,15 +87,41 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
         # ✅ 매수가, 목표가, 손절가 업데이트
         if buy_price:
             self.buy_price_label.setText(f"매수가격: {buy_price:,.0f} 원")
+        else:
+            self.buy_price_label.setText("매수가격: - 원")  # 초기화
+
         if target_price:
             self.sell_target_label.setText(f"목표 매도가격 (3% 수익): {target_price:,.0f} 원")
+        else:
+            self.sell_target_label.setText("목표 매도가격 (3% 수익): - 원")  # 초기화
+
         if stop_loss_price:
             self.stop_loss_label.setText(f"목표 매도가격 (1.5% 손절): {stop_loss_price:,.0f} 원")
+        else:
+            self.stop_loss_label.setText("목표 매도가격 (1.5% 손절): - 원")  # 초기화
+
+    def switch_chart(self):
+        """현재 매수 신청한 종목을 3초마다 번갈아가며 UI에 표시"""
+        if self.chart_tickers:
+            self.current_chart_index = (self.current_chart_index + 1) % len(self.chart_tickers)
+            current_ticker = self.chart_tickers[self.current_chart_index]
+
+            if current_ticker in self.workers:
+                worker = self.workers[current_ticker]
+                self.log(f"📊 {current_ticker} 차트 표시 중...")
+                # 현재 종목의 마지막 가격 정보 갱신
+                df = pyupbit.get_ohlcv(current_ticker, interval="minute1")
+                current_price = pyupbit.get_orderbook(current_ticker)["orderbook_units"][0]["ask_price"]
+                self.update_chart(df, current_price)
 
     def start_trading(self):
         """자동매매 시작 (여러 종목 지원)"""
-        ticker = self.input_ticker.text()
+        ticker = self.input_ticker.text().strip()
         budget = float(self.input_budget.text())
+
+        if ticker in self.workers:
+            self.log(f"⚠️ {ticker}는 이미 자동매매 중입니다!")
+            return
 
         # ✅ 🔹 백테스트 실행
         self.log(f"📊 {ticker} 변동성 돌파 전략 백테스트 실행 중...")
@@ -100,7 +131,7 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
         latest_cumulative = backtest_result["cumulative"].iloc[-1]
         self.log(f"📈 {ticker} 최근 백테스트 누적 수익률: {latest_cumulative:.4f}")
 
-        # ✅ 수익률이 일정 이상이면 매매 진행 (예: 1.02 이상이면 매매 진행)
+        # ✅ 수익률이 일정 이상이면 매매 진행
         if latest_cumulative >= 1.02:
             self.log(f"✅ {ticker} 백테스트 결과가 양호하여 자동매매를 시작합니다!")
 
@@ -109,24 +140,33 @@ class CryptoTradingBot(QMainWindow, Ui_MainWindow):
             worker.log_signal.connect(self.log)
             worker.chart_signal.connect(self.update_chart)
 
-            self.workers[ticker] = worker  # 여러 종목을 관리할 수 있도록 딕셔너리에 저장
+            self.workers[ticker] = worker
+            self.chart_tickers.append(ticker)  # 🔹 차트 순환 리스트에 추가
             worker.start()
         else:
             self.log(f"❌ {ticker} 백테스트 결과가 좋지 않아 자동매매를 취소합니다.")
             QMessageBox.warning(self, "자동매매 취소", f"{ticker} 백테스트 결과가 양호하지 않습니다. 매매를 취소합니다.")
 
-    def stop_trading(self):
-        """자동매매 정지 (여러 종목 지원)"""
-        ticker = self.input_ticker.text()  # 중지할 종목 선택
+    def stop_trading(self, ticker=None):
+        """자동매매 정지 (특정 종목 지원)"""
+        if not ticker:
+            ticker = self.input_ticker.text().strip()  # UI에서 입력받은 종목
 
         if ticker in self.workers:
             self.workers[ticker].stop()
             self.workers[ticker].quit()
             self.workers[ticker].wait()
-            del self.workers[ticker]  # 종료된 종목 제거
+            del self.workers[ticker]
+            self.chart_tickers.remove(ticker)  # 🔹 차트 순환 리스트에서도 제거
             self.log(f"🛑 {ticker} 자동매매 중지됨.")
         else:
             self.log(f"⚠️ {ticker} 자동매매가 실행 중이 아닙니다.")
+
+    def stop_all_trading(self):
+        """모든 종목 자동매매 중지"""
+        for ticker in list(self.workers.keys()):
+            self.stop_trading(ticker)
+        self.log("🛑 모든 종목 자동매매 중지됨.")
 
 
 if __name__ == "__main__":
